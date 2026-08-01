@@ -3,7 +3,7 @@ use crate::termwindow::box_model::*;
 use crate::termwindow::render::corners::*;
 use crate::termwindow::{TabBarItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
-use config::{ConfigHandle, Dimension, IntegratedTitleButtonColor};
+use config::{ConfigHandle, Dimension, DimensionContext, IntegratedTitleButtonColor};
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use window::color::LinearRgba;
@@ -220,12 +220,18 @@ pub fn window_button_element(
     font: &Rc<LoadedFont>,
     metrics: &RenderMetrics,
     config: &ConfigHandle,
+    // When set, grow the vertical padding until the button is this
+    // tall, so its highlight and its hit target span the whole bar.
+    stretch_to: Option<f32>,
+    dpi: f32,
 ) -> Element {
     let style = config.integrated_title_button_style;
 
     if style == Style::MacOsNative {
         return Element::new(font, ElementContent::Text(String::new()));
     }
+
+    let frame = &config.window_frame;
 
     let poly = {
         let (close, hide, maximize, restore) = match style {
@@ -251,23 +257,71 @@ pub fn window_button_element(
             IntegratedTitleButton::Close => close,
         };
 
-        match style {
-            Style::Windows => self::windows::sized_poly(poly),
-            Style::Gnome => self::gnome::sized_poly(poly),
-            Style::MacOsNative => unreachable!(),
+        match frame.window_buttons.glyph_size {
+            Some(size) => SizedPoly {
+                poly,
+                width: size,
+                height: size,
+            },
+            None => match style {
+                Style::Windows => self::windows::sized_poly(poly),
+                Style::Gnome => self::gnome::sized_poly(poly),
+                Style::MacOsNative => unreachable!(),
+            },
         }
     };
 
-    let element = Element::new(
-        &font,
-        ElementContent::Poly {
-            line_width: metrics.underline_height.max(2),
-            poly,
-        },
-    );
+    let line_width = match frame.window_buttons.line_width {
+        Some(w) => (w
+            .evaluate_as_pixels(DimensionContext {
+                dpi: config.dpi.unwrap_or(96.) as f32,
+                pixel_max: metrics.cell_size.height as f32,
+                pixel_cell: metrics.cell_size.height as f32,
+            })
+            .round() as isize)
+            .max(1),
+        None => metrics.underline_height.max(2),
+    };
+
+    let element = Element::new(&font, ElementContent::Poly { line_width, poly });
+
+    let configured_padding = frame.window_buttons.padding.map(|p| BoxDimension {
+        left: p.left,
+        right: p.right,
+        top: p.top,
+        bottom: p.bottom,
+    });
+
+    let dim_context = DimensionContext {
+        dpi,
+        pixel_max: metrics.cell_size.height as f32,
+        pixel_cell: metrics.cell_size.height as f32,
+    };
+
+    // Split the leftover room evenly between top and bottom, so the
+    // glyph stays put and only the box around it grows.
+    let stretched = |padding: BoxDimension, border_v: f32| -> BoxDimension {
+        let Some(target) = stretch_to else {
+            return padding;
+        };
+        let top = padding.top.evaluate_as_pixels(dim_context);
+        let bottom = padding.bottom.evaluate_as_pixels(dim_context);
+        let glyph = poly.height.evaluate_as_pixels(dim_context);
+        let slack = target - (top + bottom + glyph + border_v);
+        if slack <= 0. {
+            return padding;
+        }
+        BoxDimension {
+            top: Dimension::Pixels(top + slack / 2.),
+            bottom: Dimension::Pixels(bottom + slack / 2.),
+            ..padding
+        }
+    };
 
     let element = match style {
         Style::Windows => {
+            // The minimize button's left padding is 1pt tighter than
+            // the others'.
             let left_padding = match window_button {
                 IntegratedTitleButton::Hide => 17.0,
                 _ => 18.0,
@@ -277,12 +331,15 @@ pub fn window_button_element(
             element
                 .zindex(1)
                 .vertical_align(VerticalAlign::Middle)
-                .padding(BoxDimension {
-                    left: Dimension::Points(left_padding * scale),
-                    right: Dimension::Points(18. * scale),
-                    top: Dimension::Points(10. * scale),
-                    bottom: Dimension::Points(10. * scale),
-                })
+                .padding(stretched(
+                    configured_padding.unwrap_or(BoxDimension {
+                        left: Dimension::Points(left_padding * scale),
+                        right: Dimension::Points(18. * scale),
+                        top: Dimension::Points(10. * scale),
+                        bottom: Dimension::Points(10. * scale),
+                    }),
+                    0.,
+                ))
         }
         Style::Gnome => {
             let dim = Dimension::Pixels(7.);
@@ -290,12 +347,15 @@ pub fn window_button_element(
             element
                 .zindex(1)
                 .vertical_align(VerticalAlign::Middle)
-                .padding(BoxDimension {
-                    left: dim,
-                    right: dim,
-                    top: dim,
-                    bottom: dim,
-                })
+                .padding(stretched(
+                    configured_padding.unwrap_or(BoxDimension {
+                        left: dim,
+                        right: dim,
+                        top: dim,
+                        bottom: dim,
+                    }),
+                    2.,
+                ))
                 .border(BoxDimension::new(Dimension::Pixels(1.)))
                 .border_corners(Some(Corners {
                     top_left: SizedPoly {

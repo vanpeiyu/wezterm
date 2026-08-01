@@ -6,11 +6,40 @@ use crate::termwindow::render::corners::*;
 use crate::termwindow::render::window_buttons::window_button_element;
 use crate::termwindow::{UIItem, UIItemType};
 use crate::utilsprites::RenderMetrics;
-use config::{Dimension, DimensionContext, TabBarColors};
+use config::{
+    Dimension, DimensionContext, ElementAlign, GlyphButtonConfig, TabBarColors, WindowFrameConfig,
+};
 use std::rc::Rc;
 use wezterm_font::LoadedFont;
 use wezterm_term::color::{ColorAttribute, ColorPalette};
 use window::{IntegratedTitleButtonAlignment, IntegratedTitleButtonStyle};
+
+/// Bridge the config's four-sided dimension onto the box model's.
+fn box_dim(b: &config::BoxDim) -> BoxDimension {
+    BoxDimension {
+        left: b.left,
+        right: b.right,
+        top: b.top,
+        bottom: b.bottom,
+    }
+}
+
+/// `Stretch` has no `VerticalAlign` of its own; it sits at the top and
+/// is given a minimum height instead.
+fn vertical_align(align: ElementAlign) -> VerticalAlign {
+    match align {
+        ElementAlign::Top | ElementAlign::Stretch => VerticalAlign::Top,
+        ElementAlign::Middle => VerticalAlign::Middle,
+        ElementAlign::Bottom => VerticalAlign::Bottom,
+    }
+}
+
+fn stretch_to(align: ElementAlign, height: f32) -> Option<Dimension> {
+    match align {
+        ElementAlign::Stretch => Some(Dimension::Pixels(height)),
+        _ => None,
+    }
+}
 
 const X_BUTTON: &[Poly] = &[
     Poly {
@@ -60,6 +89,25 @@ impl crate::TermWindow {
         let font = self.fonts.title_font()?;
         let metrics = RenderMetrics::with_font_metrics(&font.metrics());
         let items = self.tab_bar.items();
+        let frame: &WindowFrameConfig = &self.config.window_frame;
+
+        // A percentage glyph size is measured against the cell height.
+        let glyph_context = DimensionContext {
+            dpi: self.dimensions.dpi as f32,
+            pixel_max: metrics.cell_size.height as f32,
+            pixel_cell: metrics.cell_size.height as f32,
+        };
+        let glyph_size = |cfg: &GlyphButtonConfig| -> Dimension {
+            Dimension::Pixels(cfg.glyph_size.evaluate_as_pixels(glyph_context).max(1.))
+        };
+        let stroke = |cfg: &GlyphButtonConfig| -> isize {
+            match cfg.line_width {
+                Some(w) => (w.evaluate_as_pixels(glyph_context) as isize).max(1),
+                None => metrics.underline_height.max(2),
+            }
+        };
+        let new_tab_glyph = glyph_size(&frame.new_tab_button);
+        let new_tab_stroke = stroke(&frame.new_tab_button);
         let colors = self
             .config
             .colors
@@ -114,7 +162,7 @@ impl crate::TermWindow {
             match item.item {
                 TabBarItem::RightStatus | TabBarItem::LeftStatus | TabBarItem::None => element
                     .item_type(UIItemType::TabBar(TabBarItem::None))
-                    .line_height(Some(1.75))
+                    .line_height(Some(frame.tab_bar_height_ratio))
                     .margin(BoxDimension {
                         left: Dimension::Cells(0.),
                         right: Dimension::Cells(0.),
@@ -132,29 +180,23 @@ impl crate::TermWindow {
                 TabBarItem::NewTabButton => Element::new(
                     &font,
                     ElementContent::Poly {
-                        line_width: metrics.underline_height.max(2),
+                        line_width: new_tab_stroke,
                         poly: SizedPoly {
                             poly: PLUS_BUTTON,
-                            width: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
-                            height: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
+                            width: new_tab_glyph,
+                            height: new_tab_glyph,
                         },
                     },
                 )
-                .vertical_align(VerticalAlign::Middle)
+                .vertical_align(vertical_align(frame.new_tab_button.vertical_align))
+                .min_height(stretch_to(
+                    frame.new_tab_button.vertical_align,
+                    tab_bar_height,
+                ))
                 .item_type(UIItemType::TabBar(item.item.clone()))
-                .margin(BoxDimension {
-                    left: Dimension::Cells(0.5),
-                    right: Dimension::Cells(0.),
-                    top: Dimension::Cells(0.2),
-                    bottom: Dimension::Cells(0.),
-                })
-                .padding(BoxDimension {
-                    left: Dimension::Cells(0.5),
-                    right: Dimension::Cells(0.5),
-                    top: Dimension::Cells(0.2),
-                    bottom: Dimension::Cells(0.25),
-                })
-                .border(BoxDimension::new(Dimension::Pixels(1.)))
+                .margin(box_dim(&frame.new_tab_button.margin))
+                .padding(box_dim(&frame.new_tab_button.padding))
+                .border(BoxDimension::new(frame.new_tab_button.border_width))
                 .colors(ElementColors {
                     border: BorderColor::default(),
                     bg: new_tab.bg_color.to_linear().into(),
@@ -166,30 +208,21 @@ impl crate::TermWindow {
                     text: new_tab_hover.fg_color.to_linear().into(),
                 })),
                 TabBarItem::Tab { active, .. } if active => element
-                    .vertical_align(VerticalAlign::Bottom)
+                    .vertical_align(vertical_align(frame.tab_vertical_align))
+                    .min_height(stretch_to(frame.tab_vertical_align, tab_bar_height))
                     .item_type(UIItemType::TabBar(item.item.clone()))
-                    .margin(BoxDimension {
-                        left: Dimension::Cells(0.),
-                        right: Dimension::Cells(0.),
-                        top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.),
-                    })
-                    .padding(BoxDimension {
-                        left: Dimension::Cells(0.5),
-                        right: Dimension::Cells(0.5),
-                        top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.25),
-                    })
-                    .border(BoxDimension::new(Dimension::Pixels(1.)))
+                    .margin(box_dim(&frame.tab.margin))
+                    .padding(box_dim(&frame.tab.padding))
+                    .border(BoxDimension::new(frame.tab.border_width))
                     .border_corners(Some(Corners {
                         top_left: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
+                            width: frame.tab.corner_radius.width,
+                            height: frame.tab.corner_radius.height,
                             poly: TOP_LEFT_ROUNDED_CORNER,
                         },
                         top_right: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
+                            width: frame.tab.corner_radius.width,
+                            height: frame.tab.corner_radius.height,
                             poly: TOP_RIGHT_ROUNDED_CORNER,
                         },
                         bottom_left: SizedPoly::none(),
@@ -211,40 +244,33 @@ impl crate::TermWindow {
                             .into(),
                     }),
                 TabBarItem::Tab { .. } => element
-                    .vertical_align(VerticalAlign::Bottom)
+                    .vertical_align(vertical_align(frame.tab_vertical_align))
+                    .min_height(stretch_to(frame.tab_vertical_align, tab_bar_height))
                     .item_type(UIItemType::TabBar(item.item.clone()))
-                    .margin(BoxDimension {
-                        left: Dimension::Cells(0.),
-                        right: Dimension::Cells(0.),
-                        top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.),
-                    })
-                    .padding(BoxDimension {
-                        left: Dimension::Cells(0.5),
-                        right: Dimension::Cells(0.5),
-                        top: Dimension::Cells(0.2),
-                        bottom: Dimension::Cells(0.25),
-                    })
-                    .border(BoxDimension::new(Dimension::Pixels(1.)))
+                    .margin(box_dim(&frame.tab.margin))
+                    .padding(box_dim(&frame.tab.padding))
+                    .border(BoxDimension::new(frame.tab.border_width))
                     .border_corners(Some(Corners {
                         top_left: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
+                            width: frame.tab.corner_radius.width,
+                            height: frame.tab.corner_radius.height,
                             poly: TOP_LEFT_ROUNDED_CORNER,
                         },
                         top_right: SizedPoly {
-                            width: Dimension::Cells(0.5),
-                            height: Dimension::Cells(0.5),
+                            width: frame.tab.corner_radius.width,
+                            height: frame.tab.corner_radius.height,
                             poly: TOP_RIGHT_ROUNDED_CORNER,
                         },
+                        // An empty poly of this height is what makes an
+                        // inactive tab sit shorter than an active one.
                         bottom_left: SizedPoly {
-                            width: Dimension::Cells(0.),
-                            height: Dimension::Cells(0.33),
+                            width: Dimension::Pixels(0.),
+                            height: frame.tab.inactive_bottom_inset,
                             poly: &[],
                         },
                         bottom_right: SizedPoly {
-                            width: Dimension::Cells(0.),
-                            height: Dimension::Cells(0.33),
+                            width: Dimension::Pixels(0.),
+                            height: frame.tab.inactive_bottom_inset,
                             poly: &[],
                         },
                     }))
@@ -292,6 +318,11 @@ impl crate::TermWindow {
                     &font,
                     &metrics,
                     &self.config,
+                    match frame.window_buttons.vertical_align {
+                        ElementAlign::Stretch => Some(tab_bar_height),
+                        _ => None,
+                    },
+                    self.dimensions.dpi as f32,
                 ),
             }
         };
@@ -346,7 +377,15 @@ impl crate::TermWindow {
                         ElementContent::Poly { .. } => unreachable!(),
                         ElementContent::Children(mut kids) => {
                             if self.config.show_close_tab_button_in_tabs {
-                                kids.push(make_x_button(&font, &metrics, &colors, tab_idx, active));
+                                kids.push(make_x_button(
+                                    &font,
+                                    &colors,
+                                    &frame.close_tab_button,
+                                    glyph_size(&frame.close_tab_button),
+                                    stroke(&frame.close_tab_button),
+                                    tab_idx,
+                                    active,
+                                ));
                             }
                             ElementContent::Children(kids)
                         }
@@ -375,20 +414,24 @@ impl crate::TermWindow {
                 || self.config.integrated_title_button_style
                     == IntegratedTitleButtonStyle::MacOsNative);
 
-        let left_padding = if window_buttons_at_left {
-            if self.config.integrated_title_button_style == IntegratedTitleButtonStyle::MacOsNative
-            {
-                if !self.window_state.contains(window::WindowState::FULL_SCREEN) {
-                    Dimension::Pixels(70.0)
+        // Unset reserves room for window buttons placed on the left.
+        let left_padding = frame.tab_bar_left_padding.unwrap_or({
+            if window_buttons_at_left {
+                if self.config.integrated_title_button_style
+                    == IntegratedTitleButtonStyle::MacOsNative
+                {
+                    if !self.window_state.contains(window::WindowState::FULL_SCREEN) {
+                        Dimension::Pixels(70.0)
+                    } else {
+                        Dimension::Cells(0.5)
+                    }
                 } else {
-                    Dimension::Cells(0.5)
+                    Dimension::Pixels(0.0)
                 }
             } else {
-                Dimension::Pixels(0.0)
+                Dimension::Cells(0.5)
             }
-        } else {
-            Dimension::Cells(0.5)
-        };
+        });
 
         children.push(
             Element::new(&font, ElementContent::Children(left_eles))
@@ -402,8 +445,14 @@ impl crate::TermWindow {
                 })
                 .zindex(1),
         );
+        // Holds the window buttons and the right status.
         children.push(
             Element::new(&font, ElementContent::Children(right_eles))
+                .vertical_align(vertical_align(frame.window_buttons.vertical_align))
+                .min_height(stretch_to(
+                    frame.window_buttons.vertical_align,
+                    tab_bar_height,
+                ))
                 .colors(bar_colors.clone())
                 .float(Float::Right),
         );
@@ -473,60 +522,48 @@ impl crate::TermWindow {
 
 fn make_x_button(
     font: &Rc<LoadedFont>,
-    metrics: &RenderMetrics,
     colors: &TabBarColors,
+    cfg: &GlyphButtonConfig,
+    glyph: Dimension,
+    line_width: isize,
     tab_idx: usize,
     active: bool,
 ) -> Element {
     Element::new(
         &font,
         ElementContent::Poly {
-            line_width: metrics.underline_height.max(2),
+            line_width,
             poly: SizedPoly {
                 poly: X_BUTTON,
-                width: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
-                height: Dimension::Pixels(metrics.cell_size.height as f32 / 2.),
+                width: glyph,
+                height: glyph,
             },
         },
     )
     // Ensure that we draw our background over the
     // top of the rest of the tab contents
     .zindex(1)
-    .vertical_align(VerticalAlign::Middle)
+    .vertical_align(vertical_align(cfg.vertical_align))
     .float(Float::Right)
     .item_type(UIItemType::CloseTab(tab_idx))
     .hover_colors({
-        let inactive_tab_hover = colors.inactive_tab_hover();
-        let active_tab = colors.active_tab();
+        // Without an explicit color, take the one belonging to the
+        // opposite tab state.
+        let hover = colors.close_tab_button_hover().unwrap_or_else(|| {
+            if active {
+                colors.inactive_tab_hover()
+            } else {
+                colors.active_tab()
+            }
+        });
 
         Some(ElementColors {
             border: BorderColor::default(),
-            bg: (if active {
-                inactive_tab_hover.bg_color
-            } else {
-                active_tab.bg_color
-            })
-            .to_linear()
-            .into(),
-            text: (if active {
-                inactive_tab_hover.fg_color
-            } else {
-                active_tab.fg_color
-            })
-            .to_linear()
-            .into(),
+            bg: hover.bg_color.to_linear().into(),
+            text: hover.fg_color.to_linear().into(),
         })
     })
-    .padding(BoxDimension {
-        left: Dimension::Cells(0.25),
-        right: Dimension::Cells(0.25),
-        top: Dimension::Cells(0.25),
-        bottom: Dimension::Cells(0.25),
-    })
-    .margin(BoxDimension {
-        left: Dimension::Cells(0.5),
-        right: Dimension::Cells(0.),
-        top: Dimension::Cells(0.),
-        bottom: Dimension::Cells(0.),
-    })
+    .padding(box_dim(&cfg.padding))
+    .margin(box_dim(&cfg.margin))
+    .border(BoxDimension::new(cfg.border_width))
 }

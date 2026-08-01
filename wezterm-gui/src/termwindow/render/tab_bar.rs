@@ -1,7 +1,7 @@
 use crate::quad::TripleLayerQuadAllocator;
 use crate::termwindow::render::RenderScreenLineParams;
 use crate::utilsprites::RenderMetrics;
-use config::ConfigHandle;
+use config::{ConfigHandle, DimensionContext};
 use mux::renderable::RenderableDimensions;
 use wezterm_term::color::ColorAttribute;
 use window::color::LinearRgba;
@@ -110,16 +110,32 @@ impl crate::TermWindow {
         config: &ConfigHandle,
         fontconfig: &wezterm_font::FontConfiguration,
         render_metrics: &RenderMetrics,
+        dpi: f32,
     ) -> anyhow::Result<f32> {
         if config.use_fancy_tab_bar {
             let font = fontconfig.title_font()?;
-            Ok((font.metrics().cell_height.get() as f32 * 1.75).ceil())
+            let cell_height = font.metrics().cell_height.get() as f32;
+            Ok(match config.window_frame.tab_bar_height {
+                Some(height) => height
+                    .evaluate_as_pixels(DimensionContext {
+                        dpi,
+                        pixel_max: cell_height,
+                        pixel_cell: cell_height,
+                    })
+                    .max(1.),
+                None => (cell_height * config.window_frame.tab_bar_height_ratio as f32).ceil(),
+            })
         } else {
             Ok(render_metrics.cell_size.height as f32)
         }
     }
 
     pub fn tab_bar_pixel_height(&self) -> anyhow::Result<f32> {
-        Self::tab_bar_pixel_height_impl(&self.config, &self.fonts, &self.render_metrics)
+        Self::tab_bar_pixel_height_impl(
+            &self.config,
+            &self.fonts,
+            &self.render_metrics,
+            self.dimensions.dpi as f32,
+        )
     }
 }

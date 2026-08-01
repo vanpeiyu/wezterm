@@ -379,6 +379,11 @@ pub struct TabBarColors {
     #[dynamic(default)]
     pub new_tab_hover: Option<TabBarColor>,
 
+    /// Styling for the per-tab close button with a mouse hovering.
+    /// When unset it is derived from the tab colors.
+    #[dynamic(default)]
+    pub close_tab_button_hover: Option<TabBarColor>,
+
     #[dynamic(default)]
     pub inactive_tab_edge: Option<RgbaColor>,
 
@@ -417,6 +422,10 @@ impl TabBarColors {
             .unwrap_or_else(default_inactive_tab_hover)
     }
 
+    pub fn close_tab_button_hover(&self) -> Option<TabBarColor> {
+        self.close_tab_button_hover.clone()
+    }
+
     pub fn inactive_tab_edge(&self) -> RgbaColor {
         self.inactive_tab_edge
             .unwrap_or_else(default_inactive_tab_edge)
@@ -446,6 +455,7 @@ impl TabBarColors {
             inactive_tab_edge_hover: overlay!(inactive_tab_edge_hover),
             new_tab: overlay!(new_tab),
             new_tab_hover: overlay!(new_tab_hover),
+            close_tab_button_hover: overlay!(close_tab_button_hover),
         }
     }
 }
@@ -593,6 +603,41 @@ pub struct WindowFrameConfig {
     #[dynamic(default)]
     pub font_size: Option<f64>,
 
+    /// The height of the tab bar, stated outright rather than left to
+    /// follow the title font's vertical metrics. When unset it is
+    /// derived as `cell_height * tab_bar_height_ratio`.
+    ///
+    /// This is a minimum: if the contents of the bar need more room,
+    /// the bar grows rather than clipping them.
+    #[dynamic(try_from = "crate::units::OptPixelUnit", default)]
+    pub tab_bar_height: Option<Dimension>,
+
+    /// Multiplier from the title font's cell height to the height of
+    /// the tab bar, used when `tab_bar_height` is unset.
+    #[dynamic(default = "default_tab_bar_height_ratio")]
+    pub tab_bar_height_ratio: f64,
+
+    /// Gap between the left edge of the window and the first tab.
+    /// When unset, room is reserved for integrated window buttons
+    /// placed on the left.
+    #[dynamic(try_from = "crate::units::OptPixelUnit", default)]
+    pub tab_bar_left_padding: Option<Dimension>,
+
+    #[dynamic(default = "default_tab_vertical_align")]
+    pub tab_vertical_align: ElementAlign,
+
+    #[dynamic(default)]
+    pub tab: TabElementConfig,
+
+    #[dynamic(default = "GlyphButtonConfig::new_tab_default")]
+    pub new_tab_button: GlyphButtonConfig,
+
+    #[dynamic(default = "GlyphButtonConfig::close_tab_default")]
+    pub close_tab_button: GlyphButtonConfig,
+
+    #[dynamic(default)]
+    pub window_buttons: WindowButtonsConfig,
+
     #[dynamic(try_from = "crate::units::PixelUnit", default = "default_zero_pixel")]
     pub border_left_width: Dimension,
     #[dynamic(try_from = "crate::units::PixelUnit", default = "default_zero_pixel")]
@@ -612,6 +657,14 @@ const fn default_zero_pixel() -> Dimension {
     Dimension::Pixels(0.)
 }
 
+const fn default_tab_bar_height_ratio() -> f64 {
+    1.75
+}
+
+const fn default_tab_vertical_align() -> ElementAlign {
+    ElementAlign::Bottom
+}
+
 impl Default for WindowFrameConfig {
     fn default() -> Self {
         Self {
@@ -627,6 +680,14 @@ impl Default for WindowFrameConfig {
             button_hover_bg: default_button_hover_bg(),
             font: None,
             font_size: None,
+            tab_bar_height: None,
+            tab_bar_height_ratio: default_tab_bar_height_ratio(),
+            tab_bar_left_padding: None,
+            tab_vertical_align: default_tab_vertical_align(),
+            tab: TabElementConfig::default(),
+            new_tab_button: GlyphButtonConfig::new_tab_default(),
+            close_tab_button: GlyphButtonConfig::close_tab_default(),
+            window_buttons: WindowButtonsConfig::default(),
             border_left_width: default_zero_pixel(),
             border_right_width: default_zero_pixel(),
             border_top_height: default_zero_pixel(),
