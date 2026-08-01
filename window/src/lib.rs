@@ -286,6 +286,11 @@ pub trait WindowOps {
     /// Use for windows snap layouts
     fn set_maximize_button_position(&self, _rect: ScreenRect) {}
 
+    /// Areas, in client coordinates, holding controls that the
+    /// application draws for itself, and which must not act as a
+    /// window resize border.
+    fn set_resize_exclusion_rects(&self, _rects: Vec<Rect>) {}
+
     /// Requests the windowing system to start a window drag.
     ///
     /// This is only implemented on backends that handle

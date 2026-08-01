@@ -1,4 +1,5 @@
-use crate::termwindow::{RenderFrame, TermWindowNotif};
+use crate::tabbar::TabBarItem;
+use crate::termwindow::{RenderFrame, TermWindowNotif, UIItemType};
 use ::window::bitmaps::atlas::OutOfTextureSpace;
 use ::window::WindowOps;
 use anyhow::Context;
@@ -146,6 +147,33 @@ impl crate::TermWindow {
         }
     }
 
+    /// Tell the window layer where the integrated title buttons are, so
+    /// that it does not treat those pixels as a resize border.
+    fn publish_resize_exclusions(&self) {
+        let rects: Vec<::window::Rect> = self
+            .ui_items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.item_type,
+                    UIItemType::TabBar(TabBarItem::WindowButton(_))
+                )
+            })
+            .map(|item| {
+                euclid::rect(
+                    item.x as isize,
+                    item.y as isize,
+                    item.width as isize,
+                    item.height as isize,
+                )
+            })
+            .collect();
+
+        if let Some(window) = self.window.as_ref() {
+            window.set_resize_exclusion_rects(rects);
+        }
+    }
+
     pub fn paint_modal(&mut self) -> anyhow::Result<()> {
         if let Some(modal) = self.get_modal() {
             for computed in modal.computed_element(self)?.iter() {
@@ -270,6 +298,7 @@ impl crate::TermWindow {
 
         if self.show_tab_bar {
             self.paint_tab_bar(&mut layers).context("paint_tab_bar")?;
+            self.publish_resize_exclusions();
         }
 
         self.paint_window_borders(&mut layers)

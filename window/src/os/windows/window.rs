@@ -120,6 +120,7 @@ pub(crate) struct WindowInner {
     track_mouse_leave: bool,
     window_drag_position: Option<ScreenPoint>,
     maximize_button_position: Option<ScreenRect>,
+    resize_exclusion_rects: Vec<Rect>,
 
     keyboard_info: KeyboardLayoutInfo,
     appearance: Appearance,
@@ -544,6 +545,7 @@ impl Window {
             track_mouse_leave: false,
             window_drag_position: None,
             maximize_button_position: None,
+            resize_exclusion_rects: vec![],
             config: config.clone(),
             paint_throttled: false,
             invalidated: true,
@@ -950,6 +952,13 @@ impl WindowOps for Window {
         });
     }
 
+    fn set_resize_exclusion_rects(&self, rects: Vec<Rect>) {
+        Connection::with_window_inner(self.0, move |inner| {
+            inner.resize_exclusion_rects = rects.clone();
+            Ok(())
+        });
+    }
+
     fn set_window_position(&self, coords: ScreenPoint) {
         Connection::with_window_inner(self.0, move |inner| {
             inner.set_window_position(coords);
@@ -1248,7 +1257,14 @@ unsafe fn wm_nchittest(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) ->
         }
     }
 
-    if !is_maximized && cursor_point.y >= 0 && cursor_point.y < frame_y {
+    // Controls the application draws for itself win over the resize
+    // grip, which would otherwise swallow the top few pixels of them.
+    let over_own_control = inner
+        .resize_exclusion_rects
+        .iter()
+        .any(|r| r.contains(euclid::point2(cursor_point.x, cursor_point.y)));
+
+    if !over_own_control && !is_maximized && cursor_point.y >= 0 && cursor_point.y < frame_y {
         if cursor_point.x <= (frame_x + padding) {
             return Some(HTTOPLEFT);
         } else if cursor_point.x >= (client_rect.right as isize) - (frame_x + padding) {
