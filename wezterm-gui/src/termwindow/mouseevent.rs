@@ -246,6 +246,12 @@ impl super::TermWindow {
 
     pub fn mouse_leave_impl(&mut self, context: &dyn WindowOps) {
         self.current_mouse_event = None;
+        // Forget which item was under the pointer, so that returning to
+        // that same item counts as entering it and repaints its hover
+        // state rather than being taken for no change at all.
+        if let Some(prior) = self.last_ui_item.take() {
+            self.leave_ui_item(&prior);
+        }
         self.update_title();
         context.set_cursor(Some(MouseCursor::Arrow));
         context.invalidate();
