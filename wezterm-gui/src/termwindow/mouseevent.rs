@@ -834,6 +834,17 @@ impl super::TermWindow {
             }
         };
 
+        let underlined = self
+            .config
+            .underline_hovered_hyperlinks_with_mouse_reporting
+            || !pane.is_mouse_grabbed();
+        if underlined != self.current_highlight_underlined {
+            self.current_highlight_underlined = underlined;
+            if self.current_highlight.is_some() {
+                context.invalidate();
+            }
+        }
+
         let outside_window = event.coords.x < 0
             || event.coords.x as usize > self.dimensions.pixel_width
             || event.coords.y < 0

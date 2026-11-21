@@ -422,6 +422,15 @@ pub struct Config {
     #[dynamic(default = "default_bypass_mouse_reporting_modifiers")]
     pub bypass_mouse_reporting_modifiers: Modifiers,
 
+    /// Whether to underline the hyperlink under the mouse cursor in a
+    /// pane whose program has turned on mouse reporting. Programs that
+    /// track the mouse may underline hovered links themselves, which
+    /// shows up as a second underline. Setting this to false leaves the
+    /// underline to the program; the link can still be opened and the
+    /// mouse cursor still changes over it.
+    #[dynamic(default = "default_true")]
+    pub underline_hovered_hyperlinks_with_mouse_reporting: bool,
+
     #[dynamic(default)]
     pub debug_key_events: bool,
 

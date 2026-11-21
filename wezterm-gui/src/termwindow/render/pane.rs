@@ -452,7 +452,7 @@ impl crate::TermWindow {
                         let hover_changed = if cached_quad.invalidate_on_hover_change {
                             !same_hyperlink(
                                 cached_quad.current_highlight.as_ref(),
-                                self.term_window.current_highlight.as_ref(),
+                                self.term_window.underlined_highlight(),
                             )
                         } else {
                             false
@@ -539,7 +539,7 @@ impl crate::TermWindow {
                         expires,
                         invalidate_on_hover_change: render_result.invalidate_on_hover_change,
                         current_highlight: if render_result.invalidate_on_hover_change {
-                            self.term_window.current_highlight.clone()
+                            self.term_window.underlined_highlight().cloned()
                         } else {
                             None
                         },

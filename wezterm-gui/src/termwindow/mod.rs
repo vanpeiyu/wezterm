@@ -423,6 +423,10 @@ pub struct TermWindow {
 
     /// The URL over which we are currently hovering
     current_highlight: Option<Arc<Hyperlink>>,
+    /// Whether current_highlight is drawn underlined. False when the
+    /// pane reports mouse events and the config leaves hover underlines
+    /// to the program (underline_hovered_hyperlinks_with_mouse_reporting).
+    current_highlight_underlined: bool,
 
     quad_generation: usize,
     shape_generation: usize,
@@ -731,6 +735,7 @@ impl TermWindow {
             current_mouse_capture: None,
             last_mouse_click: None,
             current_highlight: None,
+            current_highlight_underlined: true,
             quad_generation: 0,
             shape_generation: 0,
             shape_cache: RefCell::new(LfuCache::new(
@@ -3165,6 +3170,17 @@ impl TermWindow {
             Confirmation(args) => self.show_confirmation(args),
         };
         Ok(PerformAssignmentResult::Handled)
+    }
+
+    /// The hovered hyperlink as the renderer should see it: None when
+    /// its underline is suppressed, so the line caches, which compare
+    /// against this value, stay in step with what was drawn.
+    pub fn underlined_highlight(&self) -> Option<&Arc<Hyperlink>> {
+        if self.current_highlight_underlined {
+            self.current_highlight.as_ref()
+        } else {
+            None
+        }
     }
 
     fn do_open_link_at_mouse_cursor(&self, pane: &Arc<dyn Pane>) {

@@ -123,7 +123,7 @@ impl crate::TermWindow {
                 let hover_changed = if entry.invalidate_on_hover_change {
                     !same_hyperlink(
                         entry.current_highlight.as_ref(),
-                        self.current_highlight.as_ref(),
+                        self.underlined_highlight(),
                     )
                 } else {
                     false
@@ -756,7 +756,7 @@ impl crate::TermWindow {
                 let style = self.fonts.match_style(params.config, attrs);
                 let hyperlink = attrs.hyperlink();
                 let is_highlited_hyperlink =
-                    same_hyperlink(hyperlink, self.current_highlight.as_ref());
+                    same_hyperlink(hyperlink, self.underlined_highlight());
                 if hyperlink.is_some() {
                     invalidate_on_hover_change = true;
                 }
@@ -894,7 +894,7 @@ impl crate::TermWindow {
                     shaped: Rc::clone(&shaped),
                     invalidate_on_hover_change,
                     current_highlight: if invalidate_on_hover_change {
-                        self.current_highlight.clone()
+                        self.underlined_highlight().cloned()
                     } else {
                         None
                     },
